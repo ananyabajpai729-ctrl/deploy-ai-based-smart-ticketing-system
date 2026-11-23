@@ -1,48 +1,59 @@
-import { createAgent, gemini } from "@inngest/agent-kit";
+
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY
+});
 
 export const analyzeTicket = async (ticket) => {
-    const supportAgent = createAgent({
-        model: gemini({
+    try {
+        const response = await ai.models.generateContent({
             model: "gemini-3.8-flash",
-            apiKey: process.env.GEMINI_API_KEY,
-            defaultParameters: {
-                generationConfig: {
-                    thinkingConfig: {
-                        thinkingLevel: "LOW"
+            contents: `
+                Analyse this technical support ticket.
+
+                Title: ${ticket.title}
+                Description: ${ticket.description}
+
+                Return:
+                - priority: low, medium, or high
+                - helpfulNotes: concise, practical guidance for a human moderator including what resources can be used to faciltate learning process and real-world projects
+                - relatedSkills: array of relevant technical skills
+            `,
+            config: {
+                systemInstruction: `You are an AI assistant that analyses technical support tickets. Return only valid JSON.`,
+                responseMimeType: "application/json",
+                responseJsonSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        priority: {
+                            type: "STRING",
+                            enum: ["low", "medium", "high"]
+                        },
+                        helpfulNotes: {
+                            type: "STRING"
+                        },
+                        relatedSkills: {
+                            type: "ARRAY",
+                            items: {
+                                type: "STRING"
+                            }
+                        }
                     },
-                    maxOutputTokens: 800
+                    required: ["priority", "helpfulNotes", "relatedSkills"]
+                },
+                thinkingConfig: {
+                    thinkingLevel: "LOW"
                 }
             }
-        }),
-        name: "AI Ticket Triage Assistant",
-        system: `You are an AI assistant that analyses technical support tickets.
+        });
 
-Return only a valid JSON object with these fields:
-- priority: "low", "medium", or "high"
-- helpfulNotes: concise, practical guidance for a human moderator
-- relatedSkills: an array of relevant technical skills
+        const result = JSON.parse(response.text);
 
-Do not include markdown or code fences.`
-    });
+        return result;
 
-    const response = await supportAgent.run(`
-        Analyse this technical support ticket.
-
-        Title: ${ticket.title}
-        Description: ${ticket.description}
-
-        Return only the requested JSON object.
-    `);
-
-    const raw = response.output[0].content;
-
-    try {
-        const match = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-        const jsonString = match ? match[1] : raw.trim();
-
-        return JSON.parse(jsonString);
     } catch (error) {
-        console.error("Failed to parse AI response:", error.message);
+        console.error("Gemini ticket analysis failed:", error);
         throw error;
     }
 };
